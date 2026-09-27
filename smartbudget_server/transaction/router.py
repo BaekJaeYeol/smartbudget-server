@@ -38,6 +38,7 @@ def _current_user(request: Request, credentials):
         request.app.state.engine, request.app.state.settings, bearer_token(credentials)
     )
 
+
 def _serialize(row: Transaction) -> dict:
     """거래 모델을 API 응답 형식으로 직렬화합니다."""
 
@@ -60,6 +61,7 @@ def _serialize(row: Transaction) -> dict:
         "created_at": stamp(row.created_at),
         "updated_at": stamp(row.updated_at),
     }
+
 
 def _not_found():
     """거래를 찾지 못한 공통 응답을 반환합니다."""
