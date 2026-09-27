@@ -65,11 +65,11 @@ BudgetCategory = ExpenseCategory | IncomeCategory
 class TransactionCreate(BaseModel):
     """새 거래의 필수 값과 선택 가능한 표시 정보를 검증합니다."""
 
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="forbid")
     date: DateString
-    type: Annotated[TransactionType, Field(strict=False)]
-    source: Annotated[TransactionSource, Field(strict=False)]
-    category: Annotated[BudgetCategory, Field(strict=False)]
+    type: TransactionType
+    source: TransactionSource
+    category: BudgetCategory
     store_name: StoreName | None = None
     note: Note | None = None
     amount: Amount
@@ -93,11 +93,11 @@ class TransactionUpdate(BaseModel):
     """거래 수정에서 제공 가능한 필드와 유형 변경 규칙을 검증합니다."""
 
     model_config = ConfigDict(
-        extra="forbid", strict=True, json_schema_extra={"minProperties": 1}
+        extra="forbid", json_schema_extra={"minProperties": 1}
     )
     date: DateString | None = None
-    type: Annotated[TransactionType, Field(strict=False)] | None = None
-    category: Annotated[BudgetCategory, Field(strict=False)] | None = None
+    type: TransactionType | None = None
+    category: BudgetCategory | None = None
     store_name: StoreName | None = None
     note: Note | None = None
     amount: Amount | None = None
