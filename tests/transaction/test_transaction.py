@@ -28,7 +28,9 @@ def client(tmp_path):
 
 def token_for(client, username="User123", display_name="홍길동"):
     """테스트 사용자를 등록하고 Bearer 토큰을 반환합니다."""
-    assert (\n        signup(client, username=username, display_name=display_name).status_code == 200\n    )
+    assert (
+        signup(client, username=username, display_name=display_name).status_code == 200
+    )
     return signin(client, username=username.lower()).json()["data"]["token"]
 
 
@@ -89,7 +91,10 @@ def test_transaction_crud(client):
     deleted = client.delete(f"{PREFIX}/{transaction_id}", headers=headers(token))
     assert deleted.status_code == 200
     assert deleted.json()["data"] is None
-    assert (\n        client.get(f"{PREFIX}/{transaction_id}", headers=headers(token)).status_code\n        == 404\n    )
+    assert (
+        client.get(f"{PREFIX}/{transaction_id}", headers=headers(token)).status_code
+        == 404
+    )
 
 
 def test_transaction_requires_bearer(client):
@@ -133,7 +138,9 @@ def test_transaction_filters_dates_and_paginates(client):
     )
     assert [row["id"] for row in filtered.json()["data"]["items"]] == [ids[2], ids[1]]
 
-    first_page = client.get(PREFIX, headers=headers(token), params={"limit": 2}).json()[\n        "data"\n    ]
+    first_page = client.get(PREFIX, headers=headers(token), params={"limit": 2}).json()[
+        "data"
+    ]
     assert len(first_page["items"]) == 2
     assert first_page["next_cursor"] is not None
     second_page = client.get(
@@ -197,6 +204,9 @@ def test_update_and_delete_mark_related_report_stale(client):
     with write_session(client.app.state.engine) as session:
         session.get(Report, report_id).is_stale = False
 
-    assert (\n        client.delete(f"{PREFIX}/{transaction_id}", headers=headers(token)).status_code\n        == 200\n    )
+    assert (
+        client.delete(f"{PREFIX}/{transaction_id}", headers=headers(token)).status_code
+        == 200
+    )
     with read_session(client.app.state.engine) as session:
         assert session.get(Report, report_id).is_stale is True
