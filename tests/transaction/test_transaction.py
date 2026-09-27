@@ -59,7 +59,7 @@ def test_transaction_crud(client):
     token = token_for(client)
 
     created = create(client, token)
-    assert created.status_code == 201
+    assert created.status_code == 201, created.text
     item = created.json()["data"]
     transaction_id = item["id"]
     assert item["amount"] == 12000
@@ -96,7 +96,7 @@ def test_transaction_requires_bearer(client):
         client.patch(f"{PREFIX}/1", json={"amount": 1}),
         client.delete(f"{PREFIX}/1"),
     ]:
-        assert response.status_code == 401
+        assert response.status_code == 401, response.text
         assert response.json()["code"] == "AUTHENTICATION_REQUIRED"
 
 
