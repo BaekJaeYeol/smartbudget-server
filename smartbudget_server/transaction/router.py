@@ -32,10 +32,13 @@ router = APIRouter(prefix="/api/v1/transaction", tags=["거래"])
 KST = ZoneInfo("Asia/Seoul")
 
 def _current_user(request: Request, credentials):
+    """Bearer 토큰으로 현재 사용자를 인증합니다."""
     return auth_service.authenticate(request.app.state.engine, request.app.state.settings, bearer_token(credentials))
 
 def _serialize(row: Transaction) -> dict:
+    """거래 모델을 API 응답 형식으로 직렬화합니다."""
     def stamp(value: datetime) -> str:
+        """날짜시간을 한국 표준시 문자열로 변환합니다."""
         if value.tzinfo is None:
             value = value.replace(tzinfo=timezone.utc)
         return value.astimezone(KST).isoformat(timespec="seconds")
@@ -45,6 +48,7 @@ def _serialize(row: Transaction) -> dict:
             "updated_at": stamp(row.updated_at)}
 
 def _not_found():
+    """거래를 찾지 못한 공통 응답을 반환합니다."""
     return respond(404, code="RESOURCE_NOT_FOUND", message="The requested resource was not found.")
 
 
@@ -81,7 +85,7 @@ def list_transaction(
     end_date: Annotated[
         str | None, Query(pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
     ] = None,
-    limit: Annotated[int, Query(strict=True, ge=1, le=100)] = 50,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
     cursor: Annotated[str | None, Query(min_length=1)] = None,
     credentials: Annotated[
         HTTPAuthorizationCredentials | None, Security(bearer)
