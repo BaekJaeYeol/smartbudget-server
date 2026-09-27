@@ -92,9 +92,7 @@ class TransactionCreate(BaseModel):
 class TransactionUpdate(BaseModel):
     """거래 수정에서 제공 가능한 필드와 유형 변경 규칙을 검증합니다."""
 
-    model_config = ConfigDict(
-        extra="forbid", json_schema_extra={"minProperties": 1}
-    )
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"minProperties": 1})
     date: DateString | None = None
     type: TransactionType | None = None
     category: BudgetCategory | None = None
