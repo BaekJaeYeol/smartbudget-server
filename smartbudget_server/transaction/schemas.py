@@ -67,9 +67,9 @@ class TransactionCreate(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
     date: DateString
-    type: TransactionType
-    source: TransactionSource
-    category: BudgetCategory
+    type: Annotated[TransactionType, Field(strict=False)]
+    source: Annotated[TransactionSource, Field(strict=False)]
+    category: Annotated[BudgetCategory, Field(strict=False)]
     store_name: StoreName | None = None
     note: Note | None = None
     amount: Amount
@@ -96,8 +96,8 @@ class TransactionUpdate(BaseModel):
         extra="forbid", strict=True, json_schema_extra={"minProperties": 1}
     )
     date: DateString | None = None
-    type: TransactionType | None = None
-    category: BudgetCategory | None = None
+    type: Annotated[TransactionType, Field(strict=False)] | None = None
+    category: Annotated[BudgetCategory, Field(strict=False)] | None = None
     store_name: StoreName | None = None
     note: Note | None = None
     amount: Amount | None = None
