@@ -49,7 +49,9 @@ def _serialize(row: Transaction) -> dict:
 
 def _not_found():
     """거래를 찾지 못한 공통 응답을 반환합니다."""
-    return respond(\n        404, code="RESOURCE_NOT_FOUND", message="The requested resource was not found."\n    )
+    return respond(
+        404, code="RESOURCE_NOT_FOUND", message="The requested resource was not found."
+    )
 
 
 INVALID_REQUEST_RESPONSE = documented_response(
@@ -109,10 +111,22 @@ def list_transaction(
             stmt = stmt.where(Transaction.date <= end)
         if cursor_id:
             stmt = stmt.where(Transaction.id < cursor_id)
-        rows = list(\n            session.scalars(\n                stmt.order_by(Transaction.date.desc(), Transaction.id.desc()).limit(\n                    limit + 1\n                )\n            )\n        )
+        rows = list(
+            session.scalars(
+                stmt.order_by(Transaction.date.desc(), Transaction.id.desc()).limit(
+                    limit + 1
+                )
+            )
+        )
         more = len(rows) > limit
         rows = rows[:limit]
-        return respond(\n            200,\n            {\n                "items": [_serialize(row) for row in rows],\n                "next_cursor": str(rows[-1].id) if more and rows else None,\n            },\n        )
+        return respond(
+            200,
+            {
+                "items": [_serialize(row) for row in rows],
+                "next_cursor": str(rows[-1].id) if more and rows else None,
+            },
+        )
 
 
 @router.post(
@@ -182,7 +196,11 @@ def get_transaction(
     """본인 소유 거래 한 건을 조회합니다."""
     user = _current_user(request, credentials)
     with read_session(request.app.state.engine) as session:
-        row = session.scalar(\n            select(Transaction).where(\n                Transaction.id == id, Transaction.user_id == user.id\n            )\n        )
+        row = session.scalar(
+            select(Transaction).where(
+                Transaction.id == id, Transaction.user_id == user.id
+            )
+        )
         return respond(200, _serialize(row)) if row else _not_found()
 
 
@@ -209,7 +227,11 @@ def update_transaction(
     """본인 소유 거래를 수정합니다."""
     user = _current_user(request, credentials)
     with write_session(request.app.state.engine) as session:
-        row = session.scalar(\n            select(Transaction).where(\n                Transaction.id == id, Transaction.user_id == user.id\n            )\n        )
+        row = session.scalar(
+            select(Transaction).where(
+                Transaction.id == id, Transaction.user_id == user.id
+            )
+        )
         if not row:
             return _not_found()
         old_date = row.date
@@ -251,7 +273,11 @@ def delete_transaction(
     """본인 소유 거래를 삭제합니다."""
     user = _current_user(request, credentials)
     with write_session(request.app.state.engine) as session:
-        row = session.scalar(\n            select(Transaction).where(\n                Transaction.id == id, Transaction.user_id == user.id\n            )\n        )
+        row = session.scalar(
+            select(Transaction).where(
+                Transaction.id == id, Transaction.user_id == user.id
+            )
+        )
         if not row:
             return _not_found()
         for report in session.scalars(select(Report).where(Report.user_id == user.id, Report.period_start <= row.date, Report.period_end >= row.date)):
