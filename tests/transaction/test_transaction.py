@@ -4,6 +4,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
+
 from smartbudget_server.config import Settings
 from smartbudget_server.database import read_session, write_session
 from smartbudget_server.main import create_app
@@ -116,9 +117,20 @@ def test_transaction_isolated_by_user(client):
     second = token_for(client, username="User456", display_name="다른사용자")
     transaction_id = create(client, first).json()["data"]["id"]
 
-    assert client.get(f"{PREFIX}/{transaction_id}", headers=headers(second)).status_code == 404
-    assert client.patch(f"{PREFIX}/{transaction_id}", headers=headers(second), json={"amount": 1}).status_code == 404
-    assert client.delete(f"{PREFIX}/{transaction_id}", headers=headers(second)).status_code == 404
+    assert (
+        client.get(f"{PREFIX}/{transaction_id}", headers=headers(second)).status_code
+        == 404
+    )
+    assert (
+        client.patch(
+            f"{PREFIX}/{transaction_id}", headers=headers(second), json={"amount": 1}
+        ).status_code
+        == 404
+    )
+    assert (
+        client.delete(f"{PREFIX}/{transaction_id}", headers=headers(second)).status_code
+        == 404
+    )
     assert client.get(PREFIX, headers=headers(second)).json()["data"]["items"] == []
 
 
@@ -150,11 +162,14 @@ def test_transaction_filters_dates_and_paginates(client):
     ).json()["data"]
     assert [row["id"] for row in second_page["items"]] == [ids[0]]
 
-    assert client.get(
-        PREFIX,
-        headers=headers(token),
-        params={"start_date": "2026-09-28", "end_date": "2026-09-27"},
-    ).status_code == 400
+    assert (
+        client.get(
+            PREFIX,
+            headers=headers(token),
+            params={"start_date": "2026-09-28", "end_date": "2026-09-27"},
+        ).status_code
+        == 400
+    )
 
 
 def test_transaction_validation(client):
@@ -195,9 +210,12 @@ def test_update_and_delete_mark_related_report_stale(client):
         session.flush()
         report_id = report.id
 
-    assert client.patch(
-        f"{PREFIX}/{transaction_id}", headers=headers(token), json={"amount": 13000}
-    ).status_code == 200
+    assert (
+        client.patch(
+            f"{PREFIX}/{transaction_id}", headers=headers(token), json={"amount": 13000}
+        ).status_code
+        == 200
+    )
     with read_session(client.app.state.engine) as session:
         assert session.get(Report, report_id).is_stale is True
 
