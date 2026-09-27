@@ -158,7 +158,9 @@ def list_report(
             stmt = stmt.where(Report.id < cursor_id)
         rows = list(
             session.scalars(
-                stmt.order_by(Report.generated_at.desc(), Report.id.desc()).limit(limit + 1)
+                stmt.order_by(Report.generated_at.desc(), Report.id.desc()).limit(
+                    limit + 1
+                )
             )
         )
     more = len(rows) > limit
