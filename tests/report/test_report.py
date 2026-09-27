@@ -118,7 +118,9 @@ def test_report_create_list_get_and_delete(client):
 
     deleted = client.delete(f"{PREFIX}/{report_id}", headers=headers(token))
     assert deleted.status_code == 200
-    assert client.get(f"{PREFIX}/{report_id}", headers=headers(token)).status_code == 404
+    assert (
+        client.get(f"{PREFIX}/{report_id}", headers=headers(token)).status_code == 404
+    )
 
 
 def test_report_regeneration_reuses_id_and_clears_stale(client):
@@ -154,9 +156,12 @@ def test_report_isolated_by_user(client):
     )
     report_id = created.json()["data"]["id"]
 
-    assert client.get(f"{PREFIX}/{report_id}", headers=headers(second)).status_code == 404
     assert (
-        client.delete(f"{PREFIX}/{report_id}", headers=headers(second)).status_code == 404
+        client.get(f"{PREFIX}/{report_id}", headers=headers(second)).status_code == 404
+    )
+    assert (
+        client.delete(f"{PREFIX}/{report_id}", headers=headers(second)).status_code
+        == 404
     )
 
 
@@ -164,7 +169,9 @@ def test_report_filters_require_period_pair(client):
     """기간 필터는 period_type과 period_start를 함께 요구합니다."""
     token = token_for(client)
     assert (
-        client.get(PREFIX, headers=headers(token), params={"period_type": "daily"}).status_code
+        client.get(
+            PREFIX, headers=headers(token), params={"period_type": "daily"}
+        ).status_code
         == 400
     )
     assert (
