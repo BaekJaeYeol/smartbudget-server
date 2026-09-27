@@ -1,12 +1,12 @@
 """OpenAPI 거래 엔드포인트의 구현 대기 라우트를 등록합니다."""
 
-from typing import Annotated
+from datetime import date, datetime, time, timezone\nfrom typing import Annotated\nfrom zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Header, Path, Query, Security
-from fastapi.security import HTTPAuthorizationCredentials
+from fastapi import APIRouter, Header, Path, Query, Request, Security
+from fastapi.security import HTTPAuthorizationCredentials\nfrom sqlalchemy import select
 
-from smartbudget_server.auth.router import bearer
-from smartbudget_server.http import documented_response
+from smartbudget_server.auth import service as auth_service\nfrom smartbudget_server.auth.router import bearer, bearer_token\nfrom smartbudget_server.database import read_session, write_session
+from smartbudget_server.http import documented_response, respond\nfrom smartbudget_server.report.models import Report\nfrom smartbudget_server.transaction.models import Transaction
 from smartbudget_server.transaction.schemas import (
     AuthenticationRequiredEnvelope,
     CreatedEnvelope,
@@ -22,6 +22,24 @@ from smartbudget_server.transaction.schemas import (
 )
 
 router = APIRouter(prefix="/api/v1/transaction", tags=["거래"])
+KST = ZoneInfo("Asia/Seoul")
+
+def _current_user(request: Request, credentials):
+    return auth_service.authenticate(request.app.state.engine, request.app.state.settings, bearer_token(credentials))
+
+def _serialize(row: Transaction) -> dict:
+    def stamp(value: datetime) -> str:
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(KST).isoformat(timespec="seconds")
+    return {"id": row.id, "date": row.date.isoformat(), "type": row.type, "source": row.source,
+            "category": row.category, "store_name": row.store_name, "note": row.note, "amount": row.amount,
+            "time": row.time.isoformat() if row.time else None, "created_at": stamp(row.created_at),
+            "updated_at": stamp(row.updated_at)}
+
+def _not_found():
+    return respond(404, code="RESOURCE_NOT_FOUND", message="The requested resource was not found.")
+
 
 INVALID_REQUEST_RESPONSE = documented_response(
     InvalidRequestEnvelope, "잘못된 요청입니다."
