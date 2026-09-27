@@ -26,7 +26,9 @@ def client(tmp_path: Path):
 
 def token_for(client, username="User123", display_name="홍길동"):
     """테스트 사용자를 등록하고 인증 토큰을 반환합니다."""
-    assert signup(client, username=username, display_name=display_name).status_code == 200
+    assert (
+        signup(client, username=username, display_name=display_name).status_code == 200
+    )
     return signin(client, username=username.lower()).json()["data"]["token"]
 
 
@@ -99,7 +101,9 @@ def test_monthly_budget_isolated_by_user(client):
         == 100000
     )
     assert (
-        client.get(f"{PREFIX}/2026-09", headers=headers(second)).json()["data"]["amount"]
+        client.get(f"{PREFIX}/2026-09", headers=headers(second)).json()["data"][
+            "amount"
+        ]
         == 200000
     )
 
