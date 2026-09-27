@@ -4,8 +4,6 @@ from datetime import date, datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
-
 from smartbudget_server.config import Settings
 from smartbudget_server.database import read_session, write_session
 from smartbudget_server.main import create_app
@@ -18,6 +16,7 @@ PREFIX = "/api/v1/transaction"
 
 @pytest.fixture
 def client(tmp_path):
+    """독립 테스트 앱과 클라이언트를 생성합니다."""
     settings = Settings(
         _env_file=None,
         jwt_secret="x" * 43,
@@ -28,15 +27,18 @@ def client(tmp_path):
 
 
 def token_for(client, username="User123", display_name="홍길동"):
+    """테스트 사용자를 등록하고 Bearer 토큰을 반환합니다."""
     assert signup(client, username=username, display_name=display_name).status_code == 200
     return signin(client, username=username.lower()).json()["data"]["token"]
 
 
 def headers(token):
+    """Bearer 인증 헤더를 생성합니다."""
     return {"Authorization": "Bearer " + token}
 
 
 def payload(**changes):
+    """기본 거래 요청 데이터에 변경 값을 적용합니다."""
     data = {
         "date": "2026-09-27",
         "type": "expense",
@@ -52,10 +54,12 @@ def payload(**changes):
 
 
 def create(client, token, **changes):
+    """인증된 거래 생성 요청을 전송합니다."""
     return client.post(PREFIX, headers=headers(token), json=payload(**changes))
 
 
 def test_transaction_crud(client):
+    """거래 생성·조회·수정·삭제 흐름을 검증합니다."""
     token = token_for(client)
 
     created = create(client, token)
@@ -89,6 +93,7 @@ def test_transaction_crud(client):
 
 
 def test_transaction_requires_bearer(client):
+    """모든 거래 API가 Bearer 인증을 요구하는지 검증합니다."""
     for response in [
         client.get(PREFIX),
         client.post(PREFIX, json=payload()),
@@ -101,6 +106,7 @@ def test_transaction_requires_bearer(client):
 
 
 def test_transaction_isolated_by_user(client):
+    """다른 사용자의 거래에 접근할 수 없는지 검증합니다."""
     first = token_for(client)
     second = token_for(client, username="User456", display_name="다른사용자")
     transaction_id = create(client, first).json()["data"]["id"]
@@ -112,6 +118,7 @@ def test_transaction_isolated_by_user(client):
 
 
 def test_transaction_filters_dates_and_paginates(client):
+    """날짜 필터와 커서 페이지네이션을 검증합니다."""
     token = token_for(client)
     ids = [
         create(client, token, date="2026-09-25", amount=1000).json()["data"]["id"],
@@ -144,6 +151,7 @@ def test_transaction_filters_dates_and_paginates(client):
 
 
 def test_transaction_validation(client):
+    """잘못된 거래 입력이 거부되는지 검증합니다."""
     token = token_for(client)
     for invalid in [
         payload(amount=0),
@@ -156,6 +164,7 @@ def test_transaction_validation(client):
 
 
 def test_update_and_delete_mark_related_report_stale(client):
+    """거래 수정·삭제 시 관련 리포트가 stale 처리되는지 검증합니다."""
     token = token_for(client)
     transaction_id = create(client, token).json()["data"]["id"]
 
