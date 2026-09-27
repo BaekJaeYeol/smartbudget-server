@@ -1,12 +1,19 @@
 """OpenAPI 거래 엔드포인트의 구현 대기 라우트를 등록합니다."""
 
-from datetime import date, datetime, time, timezone\nfrom typing import Annotated\nfrom zoneinfo import ZoneInfo
+from datetime import date, datetime, time, timezone
+from typing import Annotated
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Header, Path, Query, Request, Security
-from fastapi.security import HTTPAuthorizationCredentials\nfrom sqlalchemy import select
+from fastapi.security import HTTPAuthorizationCredentials
+from sqlalchemy import select
 
-from smartbudget_server.auth import service as auth_service\nfrom smartbudget_server.auth.router import bearer, bearer_token\nfrom smartbudget_server.database import read_session, write_session
-from smartbudget_server.http import documented_response, respond\nfrom smartbudget_server.report.models import Report\nfrom smartbudget_server.transaction.models import Transaction
+from smartbudget_server.auth import service as auth_service
+from smartbudget_server.auth.router import bearer, bearer_token
+from smartbudget_server.database import read_session, write_session
+from smartbudget_server.http import documented_response, respond
+from smartbudget_server.report.models import Report
+from smartbudget_server.transaction.models import Transaction
 from smartbudget_server.transaction.schemas import (
     AuthenticationRequiredEnvelope,
     CreatedEnvelope,
