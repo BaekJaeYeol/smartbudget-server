@@ -31,21 +31,35 @@ from smartbudget_server.transaction.schemas import (
 router = APIRouter(prefix="/api/v1/transaction", tags=["거래"])
 KST = ZoneInfo("Asia/Seoul")
 
+
 def _current_user(request: Request, credentials):
     """Bearer 토큰으로 현재 사용자를 인증합니다."""
-    return auth_service.authenticate(request.app.state.engine, request.app.state.settings, bearer_token(credentials))
+    return auth_service.authenticate(
+        request.app.state.engine, request.app.state.settings, bearer_token(credentials)
+    )
 
 def _serialize(row: Transaction) -> dict:
     """거래 모델을 API 응답 형식으로 직렬화합니다."""
+
     def stamp(value: datetime) -> str:
         """날짜시간을 한국 표준시 문자열로 변환합니다."""
         if value.tzinfo is None:
             value = value.replace(tzinfo=timezone.utc)
         return value.astimezone(KST).isoformat(timespec="seconds")
-    return {"id": row.id, "date": row.date.isoformat(), "type": row.type, "source": row.source,
-            "category": row.category, "store_name": row.store_name, "note": row.note, "amount": row.amount,
-            "time": row.time.isoformat() if row.time else None, "created_at": stamp(row.created_at),
-            "updated_at": stamp(row.updated_at)}
+
+    return {
+        "id": row.id,
+        "date": row.date.isoformat(),
+        "type": row.type,
+        "source": row.source,
+        "category": row.category,
+        "store_name": row.store_name,
+        "note": row.note,
+        "amount": row.amount,
+        "time": row.time.isoformat() if row.time else None,
+        "created_at": stamp(row.created_at),
+        "updated_at": stamp(row.updated_at),
+    }
 
 def _not_found():
     """거래를 찾지 못한 공통 응답을 반환합니다."""
@@ -164,10 +178,19 @@ def create_transaction(
     user = _current_user(request, credentials)
     now = datetime.now(timezone.utc)
     with write_session(request.app.state.engine) as session:
-        row = Transaction(user_id=user.id, date=date.fromisoformat(payload.date),
-            time=time.fromisoformat(payload.time) if payload.time else None, type=payload.type.value,
-            source=payload.source.value, category=payload.category.value, store_name=payload.store_name,
-            note=payload.note, amount=payload.amount, created_at=now, updated_at=now)
+        row = Transaction(
+            user_id=user.id,
+            date=date.fromisoformat(payload.date),
+            time=time.fromisoformat(payload.time) if payload.time else None,
+            type=payload.type.value,
+            source=payload.source.value,
+            category=payload.category.value,
+            store_name=payload.store_name,
+            note=payload.note,
+            amount=payload.amount,
+            created_at=now,
+            updated_at=now,
+        )
         session.add(row)
         session.flush()
         result = _serialize(row)
@@ -244,7 +267,13 @@ def update_transaction(
             setattr(row, key, value.value if hasattr(value, "value") else value)
         row.updated_at = datetime.now(timezone.utc)
         for target in {old_date, row.date}:
-            for report in session.scalars(select(Report).where(Report.user_id == user.id, Report.period_start <= target, Report.period_end >= target)):
+            for report in session.scalars(
+                select(Report).where(
+                    Report.user_id == user.id,
+                    Report.period_start <= target,
+                    Report.period_end >= target,
+                )
+            ):
                 report.is_stale = True
         session.flush()
         result = _serialize(row)
@@ -280,7 +309,13 @@ def delete_transaction(
         )
         if not row:
             return _not_found()
-        for report in session.scalars(select(Report).where(Report.user_id == user.id, Report.period_start <= row.date, Report.period_end >= row.date)):
+        for report in session.scalars(
+            select(Report).where(
+                Report.user_id == user.id,
+                Report.period_start <= row.date,
+                Report.period_end >= row.date,
+            )
+        ):
             report.is_stale = True
         session.delete(row)
     return respond(200)
