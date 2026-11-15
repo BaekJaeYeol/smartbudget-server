@@ -12,3 +12,5 @@
 | [harness-flow.svg](harness-flow.svg) | Codex 완료 전 검증 하네스 실행 흐름 | 하네스의 실행 단계를 그림으로 설명 | 하네스 실행 순서나 흐름도를 변경할 때 |
 | [openapi.json](openapi.json) | API 구현 목표 OpenAPI 3.1 명세 | 구현해야 할 인증·가계부·소비 분석·OCR API 계약의 단일 기준 | API를 구현·변경·검토하거나 클라이언트 계약을 확인할 때 |
 | [ocr.md](ocr.md) | 영수증 OCR API 설계 및 구현 결정사항 | OpenAPI의 OCR 계약을 보충하고 구현 시 측정·결정할 처리 방식 기록 | OCR 요청 제한·병렬 처리·비동기 전환·외부 OCR 연동을 구현하거나 검토할 때 |
+| [operations/workflow.md](operations/workflow.md) | 프로젝트 작업 운영 | 원본·후보 PR, 다음 작업, 결정·재개·검증 기준 | 여러 작업을 이어 가거나 인수인계·완료 판정·실행 상태를 확인할 때 |
+| [PORTFOLIO.md](PORTFOLIO.md) | 프로젝트 소개 보관 | 기존 포트폴리오 문서 위치 | 프로젝트 범위·기여 설명을 확인하거나 수정할 때 |
