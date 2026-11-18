@@ -222,6 +222,13 @@ def test_update_and_delete_mark_related_report_stale(client):
     with write_session(client.app.state.engine) as session:
         session.get(Report, report_id).is_stale = False
 
+    assert create(client, token).status_code == 201
+    with read_session(client.app.state.engine) as session:
+        assert session.get(Report, report_id).is_stale is True
+
+    with write_session(client.app.state.engine) as session:
+        session.get(Report, report_id).is_stale = False
+
     assert (
         client.delete(f"{PREFIX}/{transaction_id}", headers=headers(token)).status_code
         == 200

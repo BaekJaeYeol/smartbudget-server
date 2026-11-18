@@ -8,13 +8,20 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Header, Path, Query, Request, Security
 from fastapi.security import HTTPAuthorizationCredentials
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 
 from smartbudget_server.auth import service as auth_service
 from smartbudget_server.auth.router import bearer, bearer_token
 from smartbudget_server.database import read_session, write_session
 from smartbudget_server.http import documented_response, respond
+from smartbudget_server.operations import begin_report, finish_report
+from smartbudget_server.report.aggregation import aggregate_transactions
 from smartbudget_server.report.models import Report
+from smartbudget_server.report.provider import (
+    ProviderFailureError,
+    ProviderTimeoutError,
+    generate_report,
+)
 from smartbudget_server.report.schemas import (
     AuthenticationRequiredEnvelope,
     GeneratedReport,
@@ -65,6 +72,14 @@ def _stamp(value: datetime) -> str:
 
 def _period(period_type: PeriodType, start: date) -> tuple[date, date]:
     """기간 종류에 따라 포함 범위의 마지막 날짜를 계산합니다."""
+    if start > datetime.now(KST).date():
+        raise ValueError("The period has not started")
+    if period_type == PeriodType.WEEKLY and start.weekday() != 0:
+        raise ValueError("Weekly periods start on Monday")
+    if period_type == PeriodType.MONTHLY and start.day != 1:
+        raise ValueError("Monthly periods start on the first")
+    if period_type == PeriodType.YEARLY and (start.month, start.day) != (1, 1):
+        raise ValueError("Yearly periods start on January first")
     if period_type == PeriodType.DAILY:
         return start, start
     if period_type == PeriodType.WEEKLY:
@@ -95,23 +110,6 @@ def _not_found():
     """본인 소유 리포트가 없을 때 공통 404 응답을 반환합니다."""
     return respond(
         404, code="RESOURCE_NOT_FOUND", message="The requested resource was not found."
-    )
-
-
-def _report_text(rows: list[Transaction], start: date, end: date) -> str:
-    """개인 식별 정보를 제외한 거래 집계로 분석 문장을 생성합니다."""
-    expense = sum(row.amount for row in rows if row.type == "expense")
-    income = sum(row.amount for row in rows if row.type == "income")
-    categories: dict[str, int] = {}
-    for row in rows:
-        categories[row.category] = categories.get(row.category, 0) + row.amount
-    category_text = ", ".join(
-        f"{category}: {amount}원"
-        for category, amount in sorted(categories.items(), key=lambda item: -item[1])
-    )
-    return (
-        f"{start.isoformat()}~{end.isoformat()} 소비 분석: "
-        f"수입 {income}원, 지출 {expense}원. 카테고리 합계: {category_text}."
     )
 
 
@@ -155,7 +153,20 @@ def list_report(
                 Report.period_type == period_type.value, Report.period_start == start
             )
         if cursor_id is not None:
-            stmt = stmt.where(Report.id < cursor_id)
+            cursor_row = session.scalar(
+                select(Report).where(Report.user_id == user.id, Report.id == cursor_id)
+            )
+            if cursor_row is None:
+                raise ValueError("invalid cursor")
+            stmt = stmt.where(
+                or_(
+                    Report.generated_at < cursor_row.generated_at,
+                    and_(
+                        Report.generated_at == cursor_row.generated_at,
+                        Report.id < cursor_row.id,
+                    ),
+                )
+            )
         rows = list(
             session.scalars(
                 stmt.order_by(Report.generated_at.desc(), Report.id.desc()).limit(
@@ -211,69 +222,134 @@ def create_report(
     ] = None,
 ):
     """지정 기간의 거래를 집계해 소비 분석 리포트를 생성합니다."""
-    del idempotency_key
     user = _current_user(request, credentials)
+    return _create_for_user(request, user, payload, idempotency_key)
+
+
+def _create_for_user(
+    request, user, payload: ReportRequest, idempotency_key: str | None
+):
+    """수동 및 예약 실행이 동일한 리포트 생성 규칙을 사용하도록 처리합니다."""
     start = date.fromisoformat(payload.period_start)
     start, end = _period(payload.period_type, start)
+    period_type = payload.period_type.value
+    period_start = start.isoformat()
+    state, value = begin_report(
+        request.app.state.engine, user.id, period_type, period_start, idempotency_key
+    )
+    if state == "replay":
+        return respond(200, value)
+    if state != "started":
+        messages = {
+            "IDEMPOTENCY_KEY_CONFLICT": "The idempotency key was already used with a different request.",
+            "IDEMPOTENCY_REQUEST_IN_PROGRESS": "A request with this idempotency key is still being processed.",
+            "REPORT_GENERATION_IN_PROGRESS": "A report for this period is already being generated.",
+        }
+        return respond(409, code=state, message=messages[state])
+    owner = value
+    finished = False
     requested_at = datetime.now(timezone.utc)
     timer = perf_counter()
-
-    with read_session(request.app.state.engine) as session:
-        transactions = list(
-            session.scalars(
-                select(Transaction).where(
-                    Transaction.user_id == user.id,
-                    Transaction.date >= start,
-                    Transaction.date <= end,
+    try:
+        query = (
+            select(Transaction)
+            .where(
+                Transaction.user_id == user.id,
+                Transaction.date >= start,
+                Transaction.date <= end,
+            )
+            .order_by(Transaction.id)
+        )
+        with read_session(request.app.state.engine) as session:
+            transactions = list(session.scalars(query))
+        if not transactions:
+            return respond(
+                400,
+                code="REPORT_NO_TRANSACTIONS",
+                message="No transactions were found for the requested period.",
+            )
+        snapshot = [(item.id, item.updated_at) for item in transactions]
+        aggregate = aggregate_transactions(transactions, period_type, start, end)
+        try:
+            full_report = generate_report(request.app.state.settings, aggregate)
+        except ProviderTimeoutError:
+            return respond(
+                504,
+                code="REPORT_PROVIDER_TIMEOUT",
+                message="The report generation service request timed out.",
+            )
+        except ProviderFailureError:
+            return respond(
+                502,
+                code="REPORT_PROVIDER_ERROR",
+                message="The report generation service request failed.",
+            )
+        generated_at = datetime.now(timezone.utc)
+        processing_time_ms = max(0, int((perf_counter() - timer) * 1000))
+        with write_session(request.app.state.engine) as session:
+            if [
+                (item.id, item.updated_at) for item in session.scalars(query)
+            ] != snapshot:
+                return respond(
+                    503,
+                    code="SERVICE_UNAVAILABLE",
+                    message="The service is temporarily unavailable.",
+                )
+            row = session.scalar(
+                select(Report).where(
+                    Report.user_id == user.id,
+                    Report.period_type == period_type,
+                    Report.period_start == start,
                 )
             )
-        )
-    if not transactions:
-        return respond(
-            400,
-            code="REPORT_NO_TRANSACTIONS",
-            message="There are no transactions in the requested period.",
-        )
-
-    full_report = _report_text(transactions, start, end)
-    generated_at = datetime.now(timezone.utc)
-    processing_time_ms = max(0, int((perf_counter() - timer) * 1000))
-
-    with write_session(request.app.state.engine) as session:
-        row = session.scalar(
-            select(Report).where(
-                Report.user_id == user.id,
-                Report.period_type == payload.period_type.value,
-                Report.period_start == start,
-            )
-        )
-        if row is None:
-            row = Report(
-                user_id=user.id,
-                period_type=payload.period_type.value,
-                period_start=start,
-                period_end=end,
-                full_report=full_report,
-                requested_at=requested_at,
-                generated_at=generated_at,
-                processing_time_ms=processing_time_ms,
-                is_stale=False,
-            )
-            session.add(row)
-            session.flush()
-        else:
+            if row is None:
+                row = Report(
+                    user_id=user.id,
+                    period_type=period_type,
+                    period_start=start,
+                    period_end=end,
+                    full_report=full_report,
+                    requested_at=requested_at,
+                    generated_at=generated_at,
+                    processing_time_ms=processing_time_ms,
+                    is_stale=False,
+                )
+                session.add(row)
+                session.flush()
             row.period_end = end
             row.full_report = full_report
             row.requested_at = requested_at
             row.generated_at = generated_at
             row.processing_time_ms = processing_time_ms
             row.is_stale = False
-        data = {
-            **_detail(row),
-            "requested_at": _stamp(row.requested_at),
-            "processing_time_ms": row.processing_time_ms,
-        }
-    return respond(200, data)
+            data = {
+                **_detail(row),
+                "requested_at": _stamp(row.requested_at),
+                "processing_time_ms": row.processing_time_ms,
+            }
+            finish_report(
+                session,
+                user.id,
+                period_type,
+                period_start,
+                idempotency_key,
+                owner,
+                data,
+            )
+        finished = True
+        return respond(200, data)
+    finally:
+        if not finished:
+            with write_session(request.app.state.engine) as session:
+                finish_report(
+                    session,
+                    user.id,
+                    period_type,
+                    period_start,
+                    idempotency_key,
+                    owner,
+                    None,
+                )
 
 
 @router.get(

@@ -124,6 +124,29 @@ docker compose down
 | HOST | 127.0.0.1 | 비어 있지 않은 바인딩 주소; 공유 `.env.example`과 컨테이너는 0.0.0.0 사용 |
 | PORT | 8000 | 1–65535 정수 |
 | WEB_ORIGINS | [] | 정확한 HTTP/HTTPS origin의 JSON 배열 |
+| AZURE_OPENAI_ENDPOINT | 없음 | 소비 분석에 사용할 Azure OpenAI HTTPS 리소스 주소 |
+| AZURE_OPENAI_KEY | 없음 | 소비 분석 서비스의 비밀 키 |
+| AZURE_OPENAI_DEPLOYMENT | 없음 | 소비 분석 모델 배포 이름 |
+| AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT | 없음 | 영수증 분석에 사용할 Document Intelligence HTTPS 리소스 주소 |
+| AZURE_DOCUMENT_INTELLIGENCE_KEY | 없음 | 영수증 분석 서비스의 비밀 키 |
+
+위 Azure 설정은 선택 항목이지만 해당 기능의 실제 외부 호출에 필요합니다. 값이 없으면 소비 분석은 제공자 오류를 반환하고 OCR은 파일별 실패로 반환합니다. 가상 데이터로 로컬에서 Azure 호출을 확인했으며, 개발 서버 배포 및 운영 환경은 아직 검증되지 않았습니다.
+
+소비 분석 설정이 모두 있으면 단일 서버 프로세스에서 한국 시간 기준 예약 작업을 실행합니다. 작업 상태와 마지막 예약 날짜는 SQLite에 기록합니다. 서버가 재시작되면 첫 설정 이후 누락된 날짜의 예약을 생성합니다. 실행 중 중단되어 외부 호출 결과를 알 수 없는 작업은 `unknown`으로 남기고 자동 재호출하지 않습니다.
+
+### 중단된 외부 작업 복구
+
+먼저 모든 서버 프로세스를 중지하고 SQLite DB를 백업합니다. 아래 명령의 `--confirm-server-stopped`는 운영자가 서버를 중지했다는 확인이며 실제 실행 여부를 자동 검사하지 않습니다. 살아 있는 서버에서 실행하면 중복 호출이나 데이터 충돌이 발생할 수 있습니다. 조회 결과에는 사용자 ID와 요청 키가 있으므로 외부에 공유하지 않습니다.
+
+```sh
+uv run --frozen python -m smartbudget_server.recovery --confirm-server-stopped list
+uv run --frozen python -m smartbudget_server.recovery --confirm-server-stopped request --user-id <사용자ID> --operation <ocr|report> --key <요청키>
+uv run --frozen python -m smartbudget_server.recovery --confirm-server-stopped scheduled --user-id <사용자ID> --period-type <daily|weekly|monthly|yearly> --start <YYYY-MM-DD> --decision <retry|done>
+```
+
+`request`는 미완료 키만 해제하며 성공 응답은 삭제하지 않습니다. 리포트 잠금은 다른 요청의 것일 수 있어 삭제하지 않으며, 만료까지 최대 120초 기다려야 할 수 있습니다. 예약 작업은 결과가 이미 저장됐는지 확인한 뒤 `done`으로 종료하거나, 필요할 때만 `retry`로 재요청을 허용합니다. 외부 호출이 이미 처리됐을 수 있으므로 키를 해제하거나 재시도하면 중복 호출과 비용이 발생할 수 있습니다. 복구 후 서버를 다시 시작합니다.
+
+Docker 개발 서버에서는 해당 서비스 컨테이너를 중지한 뒤 `docker compose run --rm --no-deps --entrypoint python smartbudget-server -m smartbudget_server.recovery --confirm-server-stopped list`와 같은 방식으로 실행합니다. 키 또는 예약 복구도 `list` 대신 위 명령의 `request` 또는 `scheduled` 인자를 전달합니다.
 
 웹 예: `WEB_ORIGINS=["http://localhost:3000","https://example.com"]`. 경로·쿼리·사용자 정보·와일드카드는 허용하지 않습니다. CORS는 GET·POST·PUT·PATCH·DELETE, Authorization·Content-Type·Idempotency-Key를 허용하고 Retry-After를 노출합니다. 쿠키 인증을 사용하지 않습니다. CORS는 브라우저 정책이며 안드로이드 인증을 대체하지 않습니다.
 
@@ -131,7 +154,7 @@ docker compose down
 
 ## SQLite와 처리량
 
-시작 시 DB 상위 폴더와 users·login_attempts 테이블을 생성합니다. 기존 테이블 구조를 변경하는 마이그레이션 기능은 없습니다. 스키마 변경 시 별도 이전 절차가 필요합니다.
+시작 시 DB 상위 폴더와 필요한 테이블을 생성합니다. `create_all`은 기존 테이블의 제약을 변경하지 않습니다. 기존 DB에 리포트 사용자·기간 유일성 인덱스를 추가하려면 서버를 중지하고 DB를 백업한 뒤 프로젝트 루트에서 `uv run --frozen python -m scripts.migrate_report_uniqueness`를 실행합니다. 중복 리포트가 있으면 이전은 중단되며 데이터를 자동 삭제하지 않습니다.
 
 NullPool로 요청 후 DB 연결을 반환합니다. 쓰기는 BEGIN IMMEDIATE로 직렬화하여 로그인 실패 집계·비밀번호 변경·토큰 발급의 경합을 막습니다. 잠금 대기는 최대 5초이며 요청 중 DB 잠금·사용 불가 오류는 503으로 반환합니다. 시작 시 DB를 열거나 테이블을 생성하지 못하면 서버 시작이 실패합니다.
 
@@ -174,11 +197,11 @@ smartbudget_server/
 │   ├── schemas.py    # 거래 요청·응답 모델
 │   └── models.py     # 거래 테이블
 ├── report/
-│   ├── router.py     # 소비 분석 생성·조회·삭제 API 스텁
+│   ├── router.py     # 소비 분석 생성·조회·삭제 API
 │   ├── schemas.py    # 소비 분석 요청·응답 모델
 │   └── models.py     # 소비 분석 리포트 테이블
 ├── proxy/
-│   ├── router.py     # 영수증 OCR 프록시 API 스텁
+│   ├── router.py     # 영수증 OCR 프록시 API
 │   ├── schemas.py    # 파일별 OCR 응답 모델
 │   └── models.py     # 영속 모델을 사용하지 않음을 명시
 └── version/
@@ -190,4 +213,4 @@ smartbudget_server/
 
 라우트는 Request의 app.state에서 해당 앱의 설정·엔진·버전 정보를 읽습니다. 모듈 전역에 앱별 DB나 설정을 저장하지 않습니다. main.py는 공통 HTTP 처리, 버전·인증 라우터, 가장 바깥의 CORS 순으로 구성합니다. 인증 전송 검사에서 즉시 반환하는 오류에도 CORS가 적용됩니다.
 
-새 기능은 auth/와 같은 수준의 디렉토리로 묶고 main.py에서 라우터를 등록합니다. 기능별 models.py는 공통 database.Base를 상속하며, 영속 데이터가 없는 OCR은 모델 모듈만 유지합니다. 앱 시작 시 create_all을 실행하기 전에 인증·월별 예산·거래·리포트 모델 모듈을 불러와 메타데이터에 등록합니다. 현재 월별 예산·거래·리포트·OCR 라우트 함수는 OpenAPI 계약에 맞춘 구현 대기 스텁이며 실제 API 로직은 포함하지 않습니다. build_engine은 연결만 구성하고 테이블 초기화는 앱 수명주기에서 수행합니다. 별도의 repository·추상 인터페이스 계층은 없습니다.
+새 기능은 auth/와 같은 수준의 디렉토리로 묶고 main.py에서 라우터를 등록합니다. 기능별 models.py는 공통 database.Base를 상속합니다. OCR 결과는 거래로 자동 저장하지 않지만 중복 방지 응답은 별도 테이블에 보관합니다. build_engine은 연결만 구성하고 테이블 초기화는 앱 수명주기에서 수행합니다. 별도의 repository·추상 인터페이스 계층은 없습니다.
