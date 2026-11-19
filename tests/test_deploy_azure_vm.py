@@ -11,18 +11,20 @@ def test_deployment_rejects_malformed_commit_sha_before_checkout_access():
     result = subprocess.run(
         [
             "bash",
-            str(DEPLOY_SCRIPT),
+            "-s",
+            "--",
             "/tmp/nonexistent",
             "invalid-sha",
             "yu-morph/smartbudget-server",
         ],
         capture_output=True,
         check=False,
-        text=True,
+        text=False,
+        input=DEPLOY_SCRIPT.read_bytes().replace(b"\r\n", b"\n"),
     )
 
     assert result.returncode != 0
-    assert "commit SHA" in result.stderr
+    assert b"commit SHA" in result.stderr
 
 
 def test_deployment_rejects_checkout_without_compose_file():
@@ -30,18 +32,20 @@ def test_deployment_rejects_checkout_without_compose_file():
     result = subprocess.run(
         [
             "bash",
-            str(DEPLOY_SCRIPT),
+            "-s",
+            "--",
             "/tmp/nonexistent",
             "0" * 40,
             "yu-morph/smartbudget-server",
         ],
         capture_output=True,
         check=False,
-        text=True,
+        text=False,
+        input=DEPLOY_SCRIPT.read_bytes().replace(b"\r\n", b"\n"),
     )
 
     assert result.returncode != 0
-    assert "docker-compose.yml" in result.stderr
+    assert b"docker-compose.yml" in result.stderr
 
 
 def test_deployment_rejects_repository_value_outside_github_path():
@@ -49,18 +53,20 @@ def test_deployment_rejects_repository_value_outside_github_path():
     result = subprocess.run(
         [
             "bash",
-            str(DEPLOY_SCRIPT),
+            "-s",
+            "--",
             "/tmp/nonexistent",
             "0" * 40,
             "https://attacker.invalid/repo",
         ],
         capture_output=True,
         check=False,
-        text=True,
+        text=False,
+        input=DEPLOY_SCRIPT.read_bytes().replace(b"\r\n", b"\n"),
     )
 
     assert result.returncode != 0
-    assert "GitHub repository" in result.stderr
+    assert b"GitHub repository" in result.stderr
 
 
 def test_deployment_waits_for_the_compose_service_health():

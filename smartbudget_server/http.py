@@ -110,6 +110,13 @@ def configure_http(app: FastAPI) -> None:
             message="The requested operation is not available.",
         )
 
+    @app.exception_handler(Exception)
+    async def internal_error(request: Request, error: Exception):
+        """처리되지 않은 예외의 내부 정보를 숨기고 공통 서버 오류를 반환합니다."""
+        return respond(
+            500, code="INTERNAL_ERROR", message="An internal server error occurred."
+        )
+
     def openapi():
         """생성된 OpenAPI를 실제 봉투 응답과 400 입력 오류 계약에 맞춥니다."""
         if app.openapi_schema is None:

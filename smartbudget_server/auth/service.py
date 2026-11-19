@@ -4,7 +4,7 @@ import secrets
 import time
 
 import jwt
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -13,6 +13,15 @@ from smartbudget_server.auth import security
 from smartbudget_server.auth.models import LoginAttempt, User
 from smartbudget_server.config import Settings
 from smartbudget_server.database import read_session, write_session
+from smartbudget_server.monthly_budget.models import MonthlyBudget
+from smartbudget_server.operations import (
+    IdempotencyRecord,
+    ReportLock,
+    ScheduledReport,
+    UserIdCounter,
+)
+from smartbudget_server.report.models import Report
+from smartbudget_server.transaction.models import Transaction
 
 INVALID_LOGIN = "The username or password is incorrect."
 INVALID_TOKEN = "Authentication is required or the token is invalid."
@@ -47,6 +56,35 @@ def now_seconds() -> int:
     return int(time.time())
 
 
+def _user_id_counter(session: Session) -> UserIdCounter:
+    """기존 계정과 고아 데이터의 최대 ID를 지속 카운터에 반영합니다."""
+    columns = (
+        User.id,
+        Transaction.user_id,
+        MonthlyBudget.user_id,
+        Report.user_id,
+        IdempotencyRecord.user_id,
+        ReportLock.user_id,
+        ScheduledReport.user_id,
+    )
+    max_existing = max(
+        (session.scalar(select(func.max(column))) or 0) for column in columns
+    )
+    counter = session.get(UserIdCounter, 1)
+    if counter is None:
+        counter = UserIdCounter(id=1, last_id=max_existing)
+        session.add(counter)
+    else:
+        counter.last_id = max(counter.last_id, max_existing)
+    return counter
+
+
+def initialize_user_id_counter(engine: Engine) -> None:
+    """기존 계정이 삭제되기 전에 ID 최댓값을 저장합니다."""
+    with write_session(engine) as session:
+        _user_id_counter(session)
+
+
 def register(engine: Engine, username: str, password: str, display_name: str) -> None:
     """정책을 검증하고 고유 아이디·비밀번호 해시·표시 이름을 저장합니다."""
     username = security.normalize_username(username)
@@ -55,8 +93,12 @@ def register(engine: Engine, username: str, password: str, display_name: str) ->
     digest = security.hash_password(password)
     try:
         with write_session(engine) as session:
+            counter = _user_id_counter(session)
+            next_id = counter.last_id + 1
+            counter.last_id = next_id
             session.add(
                 User(
+                    id=next_id,
                     username=username,
                     password_hash=digest,
                     display_name=display_name,
@@ -182,10 +224,20 @@ def update_account(
 
 
 def delete_account(engine: Engine, settings: Settings, token: str) -> None:
-    """인증된 사용자와 같은 아이디의 로그인 제한 상태를 함께 삭제합니다."""
+    """인증 사용자와 관련 거래·예산·리포트 및 인증·작업 상태를 함께 삭제합니다."""
     with write_session(engine) as session:
         user = _user(session, _claims(token, settings))
         session.execute(
             delete(LoginAttempt).where(LoginAttempt.username == user.username)
         )
+        session.execute(
+            delete(IdempotencyRecord).where(IdempotencyRecord.user_id == user.id)
+        )
+        session.execute(delete(ReportLock).where(ReportLock.user_id == user.id))
+        session.execute(
+            delete(ScheduledReport).where(ScheduledReport.user_id == user.id)
+        )
+        session.execute(delete(Report).where(Report.user_id == user.id))
+        session.execute(delete(Transaction).where(Transaction.user_id == user.id))
+        session.execute(delete(MonthlyBudget).where(MonthlyBudget.user_id == user.id))
         session.delete(user)

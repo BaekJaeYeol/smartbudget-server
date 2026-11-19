@@ -1,17 +1,20 @@
 """기능별 라우터와 공통 설정을 조립하고 DB 수명주기를 관리합니다."""
 
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from smartbudget_server.auth.router import configure_auth
+from smartbudget_server.auth.service import initialize_user_id_counter
 from smartbudget_server.config import Settings
 from smartbudget_server.database import Base, build_engine
 from smartbudget_server.http import configure_http
 from smartbudget_server.monthly_budget.router import router as monthly_budget_router
 from smartbudget_server.proxy.router import router as proxy_router
 from smartbudget_server.report.router import router as report_router
+from smartbudget_server.report.scheduler import scheduler_loop
 from smartbudget_server.transaction.router import router as transaction_router
 from smartbudget_server.version.router import configure_version
 from smartbudget_server.version.schemas import VersionData
@@ -30,9 +33,25 @@ def create_app(
     async def lifespan(app: FastAPI):
         """앱 시작에 DB를 초기화하고 종료에 엔진을 반환합니다."""
         app.state.engine = build_engine(settings.database_path)
+        app.state.ocr_semaphore = asyncio.Semaphore(2)
+        app.state.ocr_prepare_semaphore = asyncio.Semaphore(1)
         try:
             Base.metadata.create_all(app.state.engine)
-            yield
+            initialize_user_id_counter(app.state.engine)
+            scheduler = None
+            if (
+                settings.azure_openai_endpoint
+                and settings.azure_openai_key
+                and settings.azure_openai_deployment
+            ):
+                scheduler = asyncio.create_task(scheduler_loop(app))
+            try:
+                yield
+            finally:
+                if scheduler:
+                    scheduler.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await scheduler
         finally:
             app.state.engine.dispose()
 

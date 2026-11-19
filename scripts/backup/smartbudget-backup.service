@@ -1,0 +1,11 @@
+[Unit]
+Description=Back up SmartBudget SQLite to Azure Blob Storage
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+ExecStart=/usr/bin/python3 /usr/local/libexec/smartbudget-sqlite-backup.py
+TimeoutStartSec=900

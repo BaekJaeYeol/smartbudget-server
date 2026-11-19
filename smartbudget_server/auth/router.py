@@ -223,6 +223,27 @@ def configure_auth(app: FastAPI) -> None:
     @app.middleware("http")
     async def enforce_transport(request: Request, call_next):
         """갱신 토큰 혼용과 비JSON 쓰기 및 조회·삭제 본문을 거부합니다."""
+        if request.url.path == "/api/v1/report" or request.url.path.startswith(
+            "/api/v1/report/"
+        ):
+            allowed = (
+                {"period_type", "period_start", "limit", "cursor"}
+                if request.method == "GET" and request.url.path == "/api/v1/report"
+                else set()
+            )
+            if set(request.query_params) - allowed:
+                return respond(400, code="INVALID_REQUEST", message=INVALID_REQUEST)
+            if request.method in {"GET", "DELETE"} and await request.body():
+                return respond(400, code="INVALID_REQUEST", message=INVALID_REQUEST)
+            if (
+                request.method == "POST"
+                and request.headers.get("content-type", "")
+                .split(";")[0]
+                .strip()
+                .lower()
+                != "application/json"
+            ):
+                return respond(400, code="INVALID_REQUEST", message=INVALID_REQUEST)
         if request.url.path.startswith("/api/v1/auth/"):
             if request.query_params:
                 return respond(400, code="INVALID_REQUEST", message=INVALID_REQUEST)
