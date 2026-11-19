@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily SmartBudget SQLite backup
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 Asia/Seoul
+Persistent=true
+AccuracySec=1min
+Unit=smartbudget-backup.service
+
+[Install]
+WantedBy=timers.target
