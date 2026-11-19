@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     host: str = Field(default="127.0.0.1", min_length=1)
     port: int = Field(default=8000, ge=1, le=65535)
     web_origins: list[str] = Field(default_factory=list)
+    azure_openai_endpoint: str | None = None
+    azure_openai_key: SecretStr | None = None
+    azure_openai_deployment: str | None = None
+    azure_document_intelligence_endpoint: str | None = None
+    azure_document_intelligence_key: SecretStr | None = None
 
     @field_validator("jwt_secret")
     @classmethod
@@ -36,6 +41,25 @@ class Settings(BaseSettings):
     def resolve_database_path(cls, value: Path) -> Path:
         """작업 디렉터리 변경에도 같은 SQLite 파일을 사용하게 경로를 고정합니다."""
         return value.expanduser().resolve()
+
+    @field_validator("azure_openai_endpoint", "azure_document_intelligence_endpoint")
+    @classmethod
+    def validate_azure_openai_endpoint(cls, value: str | None) -> str | None:
+        """API 키가 평문이나 의도하지 않은 URL로 전송되지 않도록 검사합니다."""
+        if value is None or value == "":
+            return None
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+            or parsed.path not in ("", "/")
+        ):
+            raise ValueError("Invalid Azure OpenAI endpoint")
+        return value
 
     @field_validator("web_origins")
     @classmethod

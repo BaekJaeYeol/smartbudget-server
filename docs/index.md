@@ -12,3 +12,4 @@
 | [harness-flow.svg](harness-flow.svg) | Codex 완료 전 검증 하네스 실행 흐름 | 하네스의 실행 단계를 그림으로 설명 | 하네스 실행 순서나 흐름도를 변경할 때 |
 | [openapi.json](openapi.json) | API 구현 목표 OpenAPI 3.1 명세 | 구현해야 할 인증·가계부·소비 분석·OCR API 계약의 단일 기준 | API를 구현·변경·검토하거나 클라이언트 계약을 확인할 때 |
 | [ocr.md](ocr.md) | 영수증 OCR API 설계 및 구현 결정사항 | OpenAPI의 OCR 계약을 보충하고 구현 시 측정·결정할 처리 방식 기록 | OCR 요청 제한·병렬 처리·비동기 전환·외부 OCR 연동을 구현하거나 검토할 때 |
+| [backend-proxy-todo.md](backend-proxy-todo.md) | OCR·소비 분석 백엔드 작업 목록 | 현재 구현과 목표 계약의 차이, Azure 리소스 확인 결과 및 남은 작업 기록 | OCR 또는 소비 분석 프록시 구현을 계획하거나 진행할 때 |

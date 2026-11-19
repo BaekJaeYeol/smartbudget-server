@@ -61,6 +61,156 @@ def test_delete_account_keeps_other_user(client):
         assert session.get(LoginAttempt, "user456") is not None
 
 
+def test_deleted_account_data_is_not_visible_to_replacement_user(client):
+    """삭제한 계정의 거래가 재사용된 사용자 ID를 통해 노출되지 않습니다."""
+    signup(client)
+    token = signin(client).json()["data"]["token"]
+    response = client.post(
+        "/api/v1/transaction",
+        headers={"Authorization": "Bearer " + token},
+        json={
+            "date": "2026-09-16",
+            "type": "expense",
+            "source": "manual",
+            "category": "food",
+            "amount": 1000,
+        },
+    )
+    assert response.status_code == 201
+    assert delete_account(client, token).status_code == 200
+    assert (
+        signup(client, username="User999", display_name="새사용자").status_code == 200
+    )
+    new_token = signin(client, username="user999").json()["data"]["token"]
+    result = client.get(
+        "/api/v1/transaction", headers={"Authorization": "Bearer " + new_token}
+    )
+    assert result.json()["data"]["items"] == []
+
+
+def test_signup_does_not_reuse_legacy_orphan_transaction_owner(client):
+    """이전 버전에서 남긴 소유자 없는 거래 ID를 신규 계정에 재사용하지 않습니다."""
+    from datetime import date, datetime, timezone
+
+    from smartbudget_server.database import write_session
+    from smartbudget_server.transaction.models import Transaction
+
+    with write_session(client.app.state.engine) as session:
+        session.add(
+            Transaction(
+                user_id=1,
+                date=date(2026, 9, 16),
+                type="expense",
+                source="manual",
+                category="food",
+                amount=1000,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+    assert signup(client).status_code == 200
+    token = signin(client).json()["data"]["token"]
+    result = client.get(
+        "/api/v1/transaction", headers={"Authorization": "Bearer " + token}
+    )
+    assert result.json()["data"]["items"] == []
+
+
+def test_deleted_user_id_is_not_reused_during_an_inflight_request(client, monkeypatch):
+    """삭제 직전 인증된 요청이 새 사용자의 거래를 읽지 못합니다."""
+    from threading import Event, Thread
+
+    from smartbudget_server.report import router as report_router
+
+    signup(client)
+    old_token = signin(client).json()["data"]["token"]
+    entered, release = Event(), Event()
+    original = report_router._current_user
+
+    def wait_after_auth(request, credentials):
+        """인증 직후 삭제와 재가입이 겹치는 상황을 재현합니다."""
+        user = original(request, credentials)
+        entered.set()
+        assert release.wait(10)
+        return user
+
+    monkeypatch.setattr(report_router, "_current_user", wait_after_auth)
+    monkeypatch.setattr(
+        report_router, "generate_report", lambda settings, aggregate: "# test"
+    )
+    responses = []
+    worker = Thread(
+        target=lambda: responses.append(
+            client.post(
+                "/api/v1/report",
+                headers={"Authorization": "Bearer " + old_token},
+                json={"period_type": "daily", "period_start": "2026-09-16"},
+            )
+        )
+    )
+    worker.start()
+    try:
+        assert entered.wait(10)
+        assert delete_account(client, old_token).status_code == 200
+        assert (
+            signup(client, username="User999", display_name="새사용자").status_code
+            == 200
+        )
+        new_token = signin(client, username="user999").json()["data"]["token"]
+        assert (
+            client.post(
+                "/api/v1/transaction",
+                headers={"Authorization": "Bearer " + new_token},
+                json={
+                    "date": "2026-09-16",
+                    "type": "expense",
+                    "source": "manual",
+                    "category": "food",
+                    "amount": 4321,
+                },
+            ).status_code
+            == 201
+        )
+    finally:
+        release.set()
+        worker.join(10)
+    assert not worker.is_alive()
+    assert responses[0].status_code in (400, 401)
+
+
+def test_existing_user_id_is_remembered_before_deletion(tmp_path):
+    """기존 DB의 계정을 첫 실행 직후 삭제해도 해당 ID는 재사용되지 않습니다."""
+    from smartbudget_server.database import Base, build_engine, write_session
+    from smartbudget_server.operations import UserIdCounter
+
+    path = tmp_path / "legacy-user.sqlite3"
+    engine = build_engine(path)
+    Base.metadata.create_all(engine)
+    with write_session(engine) as session:
+        session.add(
+            User(
+                id=77,
+                username="legacy",
+                password_hash="unused",
+                display_name="기존",
+                token_version=10,
+                is_active=True,
+                created_at=0,
+            )
+        )
+    engine.dispose()
+    settings = Settings(_env_file=None, jwt_secret="x" * 43, database_path=path)
+    with TestClient(create_app(settings)) as client:
+        with write_session(client.app.state.engine) as session:
+            assert session.get(UserIdCounter, 1).last_id == 77
+            session.delete(session.get(User, 77))
+        assert signup(client).status_code == 200
+        with read_session(client.app.state.engine) as session:
+            assert (
+                session.scalar(select(User.id).where(User.username == "user123")) == 78
+            )
+
+
 def test_delete_account_authentication_and_input_contract(client):
     """DELETE는 Bearer JWT만 받고 query·본문은 요청 오류로 거부합니다."""
     signup(client)

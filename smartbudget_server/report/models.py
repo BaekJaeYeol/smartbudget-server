@@ -2,7 +2,16 @@
 
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from smartbudget_server.database import Base
@@ -12,6 +21,11 @@ class Report(Base):
     """사용자별 분석 기간과 LLM이 생성한 전체 리포트를 저장합니다."""
 
     __tablename__ = "reports"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "period_type", "period_start", name="uq_reports_user_period"
+        ),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     period_type: Mapped[str] = mapped_column(String(7))

@@ -195,6 +195,14 @@ def create_transaction(
         )
         session.add(row)
         session.flush()
+        for report in session.scalars(
+            select(Report).where(
+                Report.user_id == user.id,
+                Report.period_start <= row.date,
+                Report.period_end >= row.date,
+            )
+        ):
+            report.is_stale = True
         result = _serialize(row)
     return respond(201, result)
 
